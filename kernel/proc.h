@@ -105,3 +105,15 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+//Task 1
+struct channel {
+  struct spinlock lock;
+  enum procstate state; // Entry is USED or UNUSED
+
+  enum procstate queue; // Queue is USED (full) or UNUSED (empty)
+
+  struct proc* creator;
+  int data;
+  int cd; //channel descriptor - update
+};

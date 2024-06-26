@@ -10,10 +10,16 @@ struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
 
+// Task 1
+struct channel channel[NCHANNEL];
+
 struct proc *initproc;
 
 int nextpid = 1;
 struct spinlock pid_lock;
+
+int nextcd = 1; //update
+struct spinlock cd_lock; //update
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
@@ -57,6 +63,20 @@ procinit(void)
       p->kstack = KSTACK((int) (p - proc));
   }
 }
+
+// initialize the channel table.   Task 1
+void
+channelinit(void)
+{
+  struct channel *c;
+  initlock(&cd_lock, "nextcd"); //update
+  for(c = channel; c < &channel[NCHANNEL]; c++) {
+      initlock(&c->lock, "channel");
+      c->state = UNUSED;
+      c->queue = UNUSED;
+  }
+}
+
 
 // Must be called with interrupts disabled,
 // to prevent race with process being moved
@@ -374,9 +394,17 @@ exit(int status)
   wakeup(p->parent);
   
   acquire(&p->lock);
-
+  
   p->xstate = status;
   p->state = ZOMBIE;
+
+  //Task 1 - update
+  for(struct channel* c = channel; c < &channel[NCHANNEL]; c++) {
+    if(c->creator==p){
+      channel_destroy(c->cd);
+    }
+  }
+
 
   release(&wait_lock);
 
@@ -596,6 +624,16 @@ kill(int pid)
         p->state = RUNNABLE;
       }
       release(&p->lock);
+
+
+      //Task 1 - update
+      for(struct channel* c = channel; c < &channel[NCHANNEL]; c++) {
+        if(c->creator==p){
+          channel_destroy(c->cd);
+        }
+      }
+
+
       return 0;
     }
     release(&p->lock);
@@ -680,4 +718,108 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+//Task 1
+int channel_create(void){
+  struct channel *c;
+
+  for(c = channel; c < &channel[NCHANNEL]; c++) {
+    acquire(&c->lock);
+    if(c->state == UNUSED) {
+      c->state = USED;
+      c->queue = UNUSED;
+      c->creator = myproc();
+
+      //update cd
+      acquire(&cd_lock);
+      c->cd = nextcd;
+      nextcd++;
+      release(&cd_lock);
+
+      release(&c->lock);
+      return c->cd;
+    
+    }
+    release(&c->lock);
+  }
+  return -1;
+}
+
+//Sleep on &queue to take and on &data to put
+int channel_put(int cd, int data){ //update
+  
+  struct channel *c;
+  for(c = channel; c < &channel[NCHANNEL]; c++) {
+    acquire(&c->lock);
+    if(c->cd == cd && c->state == USED) {
+      //sleep while can't put
+      while(c->queue==USED){
+        sleep(&c->data ,&c->lock);
+        if(c->state==UNUSED){
+          release(&c->lock);
+          return -1;
+        }
+      }
+      c->data = data;
+      c->queue = USED;
+      wakeup(&c->queue);
+      release(&c->lock);
+      return 0;
+    }
+    release(&c->lock);
+  }
+
+  //c->pid == -1 or doesn't exist
+  return -1;
+}
+
+//Sleep on &queue to take and on &data to put
+int channel_take(int cd, int* data){ // - update
+  struct channel *c;
+  for(c = channel; c < &channel[NCHANNEL]; c++) {
+    acquire(&c->lock);
+    if(c->cd == cd && c->state == USED) {
+      //sleep while can't put
+      while(c->queue==UNUSED){
+        sleep(&c->queue ,&c->lock);
+        if(c->state==UNUSED){
+          release(&c->lock);
+          return -1;
+        }
+      }
+
+      int res = copyout(myproc()->pagetable, (uint64)data, (char*)(&c->data), sizeof(c->data));
+      if(res==0){
+          wakeup(&c->data);
+          c->queue = UNUSED;
+      }
+      release(&c->lock);
+      return res;
+    }
+    release(&c->lock);
+  }
+
+  //c->pid == -1 or doesn't exist
+  return -1;
+}
+
+//Sleep on &queue to take and on &data to put
+int channel_destroy(int cd){ //update
+  
+  struct channel *c;
+  for(c = channel; c < &channel[NCHANNEL]; c++) {
+    acquire(&c->lock);
+    if(c->cd == cd && c->state == USED ) {
+      c->state=UNUSED;
+      wakeup(&c->queue);
+      wakeup(&c->data);
+      release(&c->lock);
+      return 0;
+    }
+    release(&c->lock);
+  }
+
+  //c->pid == -1 or doesn't exist
+  return -1;
 }

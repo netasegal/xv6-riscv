@@ -96,6 +96,7 @@ struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
 void            procinit(void);
+void            channelinit(void); // Task 1
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);
@@ -106,7 +107,11 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
-
+//Task 1
+int             channel_create(void);
+int             channel_put(int, int);
+int             channel_take(int, int*);
+int             channel_destroy(int);
 // swtch.S
 void            swtch(struct context*, struct context*);
 
